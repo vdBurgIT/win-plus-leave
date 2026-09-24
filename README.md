@@ -16,6 +16,7 @@ Inspired by [BusKill](https://www.buskill.in/) and YubiKill, built for the way W
 - **Event-driven, with a safety net.** The monitor subscribes to `Win32_DeviceChangeEvent` (USB arrival and removal) and re-checks the trusted devices on every event, plus a slow poll every few seconds in case an event is missed.
 - **Arms itself.** It only fires when a trusted device *was* present and is now gone. Insert the key and it arms; pull it and it locks, once; insert it again and it re-arms. No key at logon means it waits quietly instead of locking you out.
 - **Debounced.** A key that re-enumerates for a moment (a touch, a flaky hub) is checked twice before anything happens.
+- **Never a lock loop.** A key must be in for `ArmDelaySeconds` without a break before it arms, and after `MaxFiresPerWindow` locks in `FlapWindowMinutes` the switch stands down until the next logon. See *A bad day* below.
 - **Protected config.** `%ProgramData%\UsbDeadman\config.json` is writable by administrators only, so a user cannot switch the deadman off by editing a text file.
 
 ## Install
@@ -55,9 +56,26 @@ Uninstall:
 | `DebounceMilliseconds` | `750` | How long a removal must last before it counts. |
 | `PollSeconds` | `5` | Safety-net poll between events. |
 | `LockIfMissingAtStart` | `false` | Fire at logon when no trusted device is present. Only for kiosks where the key must always be in. |
+| `ArmDelaySeconds` | `5` | How long a key must be in, without a break, before it arms. Stops a broken key that blinks in and out. |
+| `MaxFiresPerWindow` | `3` | After this many locks within `FlapWindowMinutes` the key is treated as faulty and the switch stands down until the next logon. `0` = never. |
+| `FlapWindowMinutes` | `10` | The window for the rule above. |
 | `LogPath` | `%LOCALAPPDATA%\UsbDeadman\UsbDeadman.log` | Rotates at `LogMaxKB`. |
 
 Changes apply at the next logon, or restart the task.
+
+## A bad day 🌧️ (and why it never locks you out)
+
+1. **08:00** You sign in, YubiKey in. Five seconds later the switch is armed.
+2. **12:30** You pull the key and walk to lunch. 🔒 Locked, once, and the switch disarms.
+3. **13:15** You are back, but the key is broken. You unlock with your PIN or password.
+   **Nothing happens.** A disarmed switch only re-arms when a trusted key is back in, so unlocking without one is fine for the rest of the day.
+4. **Tomorrow** you sign in without a key (it is still broken). Nothing happens either: every logon starts disarmed and remembers nothing from earlier logons.
+
+And the nasty version: the broken key is still in the laptop and blinks in and out. It never stays in for `ArmDelaySeconds`, so it never arms. If it does manage to arm and drop a few times, the switch stands down after three locks in ten minutes and says so in the log, instead of locking you out every time you unlock.
+
+These exact scenarios are tests in [`tests/UsbDeadman.Tests.ps1`](tests/UsbDeadman.Tests.ps1).
+
+The one setting that *would* lock a logon without a key is `LockIfMissingAtStart`. It is off by default and meant for kiosks where the key must always be in.
 
 ## Deploy with Intune (Win32 app)
 

@@ -30,6 +30,9 @@ function Get-UdDefaultConfig {
         DebounceMilliseconds = 750
         PollSeconds          = 5
         LockIfMissingAtStart = $false
+        ArmDelaySeconds      = 5
+        MaxFiresPerWindow    = 3
+        FlapWindowMinutes    = 10
         LogPath              = '%LOCALAPPDATA%\UsbDeadman\UsbDeadman.log'
         LogMaxKB             = 1024
     }
@@ -79,6 +82,9 @@ function Get-UdConfig {
     $config.DebounceMilliseconds = [int][math]::Max(0, [int]$config.DebounceMilliseconds)
     $config.PollSeconds = [int][math]::Max(1, [int]$config.PollSeconds)
     $config.LogMaxKB = [int][math]::Max(64, [int]$config.LogMaxKB)
+    $config.ArmDelaySeconds = [int][math]::Max(0, [int]$config.ArmDelaySeconds)
+    $config.MaxFiresPerWindow = [int][math]::Max(0, [int]$config.MaxFiresPerWindow)
+    $config.FlapWindowMinutes = [int][math]::Max(1, [int]$config.FlapWindowMinutes)
     $config.LogPath = [Environment]::ExpandEnvironmentVariables([string]$config.LogPath)
     $config
 }
@@ -181,27 +187,70 @@ function New-UdRuleFromInstanceId {
 
 #region State machine -----------------------------------------------------------
 
-function Get-UdNextStep {
+function New-UdTickState {
     <#
         .SYNOPSIS
-        One tick of the deadman switch. Pure: given the state and whether a
-        trusted device is present, returns the next state and whether to fire.
+        The switch's memory for one session. It starts disarmed and holds
+        nothing from earlier logons: that you had the key in this morning says
+        nothing about this afternoon.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
+    [CmdletBinding()]
+    param()
+    [pscustomobject]@{ State = 'Disarmed'; PresentSince = $null; Fires = @() }
+}
 
-        Disarmed + present  -> Armed           (key inserted: now we watch it)
-        Armed    + absent   -> Disarmed + Fire (key pulled: lock, once)
-        anything else       -> unchanged
+function Invoke-UdTick {
+    <#
+        .SYNOPSIS
+        One tick of the deadman switch. Pure: given what it remembers, the time
+        and whether a trusted device is present, returns the new memory and
+        whether to fire.
 
-        Firing disarms, so a pulled key locks once instead of every tick, and the
-        switch re-arms by itself when the key comes back.
+        Disarmed + present for ArmDelaySeconds -> Armed
+        Armed    + absent                      -> Disarmed, fire once
+        MaxFiresPerWindow fires in the window   -> Suspended until next logon
+
+        The rules that keep a bad day from turning into a lock loop:
+        - Firing disarms. Unlocking without the key (it is at home, it broke)
+          leaves the switch disarmed; only a key that is back in re-arms it.
+        - A key has to be present without a break for ArmDelaySeconds before it
+          arms, so a broken key that blinks in and out never arms at all.
+        - If it still fires MaxFiresPerWindow times within FlapWindowMinutes, the
+          key is treated as faulty and the switch stands down for the session.
     #>
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory)] [ValidateSet('Disarmed', 'Armed')] [string] $State,
-        [Parameter(Mandatory)] [bool] $Present
+        [Parameter(Mandatory)] $Tick,
+        [Parameter(Mandatory)] [datetime] $Now,
+        [Parameter(Mandatory)] [bool] $Present,
+        [Parameter(Mandatory)] $Config
     )
-    if ($State -eq 'Disarmed' -and $Present) { return [pscustomobject]@{ State = 'Armed'; Fire = $false; Changed = $true } }
-    if ($State -eq 'Armed' -and -not $Present) { return [pscustomobject]@{ State = 'Disarmed'; Fire = $true; Changed = $true } }
-    [pscustomobject]@{ State = $State; Fire = $false; Changed = $false }
+    $since = $Tick.PresentSince
+    if ($Present) { if (-not $since) { $since = $Now } } else { $since = $null }
+    $windowStart = $Now.AddMinutes(-[double]$Config.FlapWindowMinutes)
+    $fires = @($Tick.Fires | Where-Object { $_ -gt $windowStart })
+    $out = [pscustomobject]@{ State = $Tick.State; PresentSince = $since; Fires = $fires; Fire = $false; Event = '' }
+
+    switch ($Tick.State) {
+        'Suspended' { }
+        'Disarmed' {
+            if ($Present -and ($Now - $since).TotalSeconds -ge $Config.ArmDelaySeconds) {
+                $out.State = 'Armed'; $out.Event = 'armed'
+            }
+        }
+        'Armed' {
+            if (-not $Present) {
+                $out.Fire = $true
+                $out.Fires = @($fires) + $Now
+                $out.State = 'Disarmed'; $out.Event = 'fired'
+                if ($Config.MaxFiresPerWindow -gt 0 -and $out.Fires.Count -ge $Config.MaxFiresPerWindow) {
+                    $out.State = 'Suspended'; $out.Event = 'suspended'
+                }
+            }
+        }
+    }
+    $out
 }
 
 #endregion
@@ -286,7 +335,7 @@ function Start-UdMonitor {
         .SYNOPSIS
         The main loop. Listens for USB arrival and removal events, re-checks the
         trusted devices on every event and on a slow poll (the safety net for a
-        missed event), and fires the action when the armed key disappears.
+        missed event), and feeds each check through Invoke-UdTick.
     #>
     # A monitor loop, not a one-off change; -WhatIf belongs on Invoke-UdAction.
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
@@ -296,53 +345,59 @@ function Start-UdMonitor {
     )
     $log = { param($m) Write-UdLog -Message $m -Path $Config.LogPath -MaxKB $Config.LogMaxKB }
     $sourceId = 'UsbDeadman.DeviceChange'
-    $isPresent = {
+    $check = {
         $found = @(Find-UdTrustedDevice -Devices @(Get-UdPresentUsbDevice) -Rules $Config.Devices)
         [pscustomobject]@{ Present = ($found.Count -gt 0); Devices = $found }
     }
 
-    $first = & $isPresent
-    $state = 'Disarmed'
+    $tick = New-UdTickState
+    $first = & $check
     if ($first.Present) {
-        $state = 'Armed'
-        & $log ("started, armed on: " + (($first.Devices | ForEach-Object { $_.Name }) -join ', '))
+        & $log ("started, trusted device present, arming in {0}s: {1}" -f $Config.ArmDelaySeconds, (($first.Devices | ForEach-Object { $_.Name }) -join ', '))
     }
     elseif ($Config.LockIfMissingAtStart) {
         & $log 'started without a trusted device and LockIfMissingAtStart is set: firing'
         Invoke-UdAction -Action $Config.Action
     }
     else {
-        & $log 'started, disarmed: waiting for a trusted device'
+        & $log 'started without a trusted device: staying disarmed until one is plugged in'
     }
 
-    # EventType 2 = arrival, 3 = removal. Both matter: arrival re-arms.
+    # EventType 2 = arrival, 3 = removal. Both matter: arrival starts arming.
     Register-CimIndicationEvent -Query 'SELECT * FROM Win32_DeviceChangeEvent WHERE EventType = 2 OR EventType = 3' -SourceIdentifier $sourceId | Out-Null
     try {
+        $now = $first
         while ($true) {
-            $evt = Wait-Event -SourceIdentifier $sourceId -Timeout $Config.PollSeconds
+            $step = Invoke-UdTick -Tick $tick -Now (Get-Date) -Present $now.Present -Config $Config
+            switch ($step.Event) {
+                'armed' { & $log ("armed on: " + (($now.Devices | ForEach-Object { $_.Name }) -join ', ')) }
+                'fired' { & $log "trusted device removed: $($Config.Action)" }
+                'suspended' {
+                    & $log ("trusted device removed: {0}. That is {1} times in {2} minutes, so the key looks faulty: standing down until the next logon." -f $Config.Action, $step.Fires.Count, $Config.FlapWindowMinutes)
+                }
+            }
+            if ($step.Fire) {
+                try { Invoke-UdAction -Action $Config.Action }
+                catch { & $log "action failed: $($_.Exception.Message)" }
+            }
+            $tick = $step
+
+            # Waiting for a key to settle: look again every second so it arms
+            # on time. Otherwise the slow poll is only the safety net.
+            $timeout = $Config.PollSeconds
+            if ($tick.State -eq 'Disarmed' -and $tick.PresentSince) { $timeout = 1 }
+            $evt = Wait-Event -SourceIdentifier $sourceId -Timeout $timeout
             if ($evt) {
                 # Windows raises a burst of events per device; drain them so one
                 # insertion is one check.
                 Get-Event -SourceIdentifier $sourceId -ErrorAction SilentlyContinue | Remove-Event
             }
-            $now = & $isPresent
-            if ($state -eq 'Armed' -and -not $now.Present -and $Config.DebounceMilliseconds -gt 0) {
-                # A USB hub hiccup or a key re-enumerating after a touch can look
+            $now = & $check
+            if ($tick.State -eq 'Armed' -and -not $now.Present -and $Config.DebounceMilliseconds -gt 0) {
+                # A hub hiccup or a key re-enumerating after a touch can look
                 # like a removal for a few hundred milliseconds. Look twice.
                 Start-Sleep -Milliseconds $Config.DebounceMilliseconds
-                $now = & $isPresent
-            }
-            $step = Get-UdNextStep -State $state -Present $now.Present
-            if ($step.Changed) {
-                if ($step.Fire) {
-                    & $log "trusted device removed: $($Config.Action)"
-                    try { Invoke-UdAction -Action $Config.Action }
-                    catch { & $log "action failed: $($_.Exception.Message)" }
-                }
-                else {
-                    & $log ("armed on: " + (($now.Devices | ForEach-Object { $_.Name }) -join ', '))
-                }
-                $state = $step.State
+                $now = & $check
             }
         }
     }
@@ -355,5 +410,5 @@ function Start-UdMonitor {
 #endregion
 
 Export-ModuleMember -Function Get-UdDefaultConfig, Get-UdConfig, ConvertFrom-UdInstanceId, Test-UdDeviceMatch,
-    Find-UdTrustedDevice, New-UdRuleFromInstanceId, Get-UdNextStep, Write-UdLog, Get-UdPresentUsbDevice,
+    Find-UdTrustedDevice, New-UdRuleFromInstanceId, New-UdTickState, Invoke-UdTick, Write-UdLog, Get-UdPresentUsbDevice,
     Invoke-UdAction, Start-UdMonitor

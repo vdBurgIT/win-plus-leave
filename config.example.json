@@ -6,6 +6,9 @@
   "DebounceMilliseconds": 750,
   "PollSeconds": 5,
   "LockIfMissingAtStart": false,
+  "ArmDelaySeconds": 5,
+  "MaxFiresPerWindow": 3,
+  "FlapWindowMinutes": 10,
   "LogPath": "%LOCALAPPDATA%\\UsbDeadman\\UsbDeadman.log",
   "LogMaxKB": 1024
 }
