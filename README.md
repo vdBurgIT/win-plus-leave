@@ -31,6 +31,10 @@ For the full deadman effect, put the key on a **retractable badge reel** and kee
 
 <!-- 📸 photo: retractable badge reel with the key plugged into the laptop -->
 
+**Magnetic USB-C adapter.** Leave the small half in the laptop port and put the other half on the key. A tug snaps them apart cleanly: no bent key, no worn port, and the laptop stays on the table. Lanyard + reel + magnet is the BusKill idea without a special cable. Many cheap adapters are **charge-only**: the key needs data (USB 2.0 is enough), so pick one that carries data and check that Windows sees the key through it.
+
+<!-- 📸 photo: magnetic USB-C adapter in the laptop, key on the lanyard side -->
+
 ## How it works
 
 - **A logon task, not a service.** `Install.ps1` registers a scheduled task (`\WinPlusLeave`) that starts at every logon, for every user, *in the user's own session*. Locking a workstation only works from inside that session, which is why this is not a SYSTEM service.
