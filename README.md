@@ -21,6 +21,16 @@ The café, the train, the client's meeting room, the kitchen table at home: the 
 
 Rolled out through Intune to every user, it becomes a house rule instead of a hope: the same behaviour on every laptop, for every user, with nothing to install or configure per person.
 
+## Wear it: the badge-lanyard trick 🪪
+
+Hang the key on the **same lanyard as your building badge**. You never leave without the badge (you need it to get back in), so the key always leaves with you.
+
+<!-- 📸 photo: YubiKey on a badge lanyard next to a building access card -->
+
+For the full deadman effect, put the key on a **retractable badge reel** and keep it plugged in while you work. Stand up, walk away, and the cord pulls the key out for you. Locked, even when you forget. Keep the reel short enough that standing up actually pulls, and test your own key and port first: a USB-A key in a tight port can need more of a tug than a reel gives.
+
+<!-- 📸 photo: retractable badge reel with the key plugged into the laptop -->
+
 ## How it works
 
 - **A logon task, not a service.** `Install.ps1` registers a scheduled task (`\WinPlusLeave`) that starts at every logon, for every user, *in the user's own session*. Locking a workstation only works from inside that session, which is why this is not a SYSTEM service.
