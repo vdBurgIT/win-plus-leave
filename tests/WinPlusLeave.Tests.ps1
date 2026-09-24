@@ -85,7 +85,7 @@ Describe 'New-WplRuleFromInstanceId' {
 
 Describe 'Invoke-WplTick (the deadman switch)' {
     BeforeAll {
-        $cfg = [pscustomobject]@{ ArmDelaySeconds = 5; MaxFiresPerWindow = 3; FlapWindowMinutes = 10 }
+        $cfg = [pscustomobject]@{ ArmDelaySeconds = 5; BounceSeconds = 10; MaxBouncesPerWindow = 3; FlapWindowMinutes = 10; CooldownMinutes = 15 }
         # Plays a timeline of (clock time, key present?) through the switch and
         # returns what happened. Times are on one arbitrary day.
         function Invoke-Timeline {
@@ -150,31 +150,50 @@ Describe 'Invoke-WplTick (the deadman switch)' {
         $r.Fires | Should -Be @('10:00:00', '11:00:00')
     }
 
-    It 'stands down after 3 locks in 10 minutes: a faulty key must not lock you out all day' {
+    It 'testing it over and over never switches it off (the 24 Sep bug)' {
+        # Exactly what happened on the first real test: pull, unlock, plug back
+        # in a bit later, again and again. Six locks, zero pauses.
         $timeline = @()
         foreach ($m in 0..5) {
-            # works for 6 seconds, then drops: arms, fires, again and again
-            $timeline += , @(('09:{0:D2}:00' -f $m), $true)
-            $timeline += , @(('09:{0:D2}:06' -f $m), $true)
-            $timeline += , @(('09:{0:D2}:30' -f $m), $false)
+            $timeline += , @(('13:{0:D2}:00' -f (20 + $m)), $true)
+            $timeline += , @(('13:{0:D2}:06' -f (20 + $m)), $true)
+            $timeline += , @(('13:{0:D2}:08' -f (20 + $m)), $false)  # pulled: lock
+            $timeline += , @(('13:{0:D2}:30' -f (20 + $m)), $false)  # unlocking with the PIN
         }
         $r = Invoke-Timeline $timeline
-        $r.Fires.Count | Should -Be 3
+        $r.Fires.Count | Should -Be 6
+        $r.State | Should -Not -Be 'Suspended'
+    }
+
+    It 'pauses when a faulty key keeps coming back by itself right after a lock' {
+        $timeline = @()
+        foreach ($m in 0..5) {
+            $timeline += , @(('09:{0:D2}:00' -f $m), $true)
+            $timeline += , @(('09:{0:D2}:06' -f $m), $true)   # armed
+            $timeline += , @(('09:{0:D2}:10' -f $m), $false)  # drops: lock
+            $timeline += , @(('09:{0:D2}:12' -f $m), $true)   # back 2 s later, on its own
+            $timeline += , @(('09:{0:D2}:18' -f $m), $true)
+            $timeline += , @(('09:{0:D2}:25' -f $m), $false)  # drops again
+        }
+        $r = Invoke-Timeline $timeline
         $r.State | Should -Be 'Suspended'
+        # 12 drops in this timeline; after the third bounce nothing fires any more
+        $r.Fires.Count | Should -Be 5
+        $r.Fires[-1] | Should -Be '09:02:10'
     }
 
-    It 'forgets old locks once they fall out of the window' {
-        $r = Invoke-Timeline @(
-            @('08:00:00', $true), @('08:00:05', $true), @('08:01:00', $false),
-            @('08:02:00', $true), @('08:02:05', $true), @('08:03:00', $false),
-            @('11:00:00', $true), @('11:00:05', $true), @('11:01:00', $false)
-        )
-        $r.Fires.Count | Should -Be 3
-        $r.State | Should -Be 'Disarmed'
+    It 'ends the pause by itself after the cooldown, then arms again' {
+        $tick = New-WplTickState
+        $t0 = Get-Date '2026-09-24 09:00:00'
+        $tick.State = 'Suspended'; $tick.SuspendedUntil = $t0.AddMinutes(15)
+        (Invoke-WplTick -Tick $tick -Now $t0.AddMinutes(10) -Present $true -Config $cfg).State | Should -Be 'Suspended'
+        $step = Invoke-WplTick -Tick $tick -Now $t0.AddMinutes(15) -Present $true -Config $cfg
+        $step.State | Should -Be 'Disarmed'; $step.Event | Should -Be 'resumed'
+        (Invoke-WplTick -Tick $step -Now $t0.AddMinutes(15).AddSeconds(5) -Present $true -Config $cfg).State | Should -Be 'Armed'
     }
 
-    It 'never stands down when the breaker is switched off' {
-        $off = [pscustomobject]@{ ArmDelaySeconds = 0; MaxFiresPerWindow = 0; FlapWindowMinutes = 10 }
+    It 'never pauses when the breaker is switched off' {
+        $off = [pscustomobject]@{ ArmDelaySeconds = 0; BounceSeconds = 10; MaxBouncesPerWindow = 0; FlapWindowMinutes = 10; CooldownMinutes = 15 }
         $timeline = foreach ($s in 0..19) { , @(('09:00:{0:D2}' -f $s), ($s % 2 -eq 0)) }
         $r = Invoke-Timeline $timeline -Config $off
         $r.Fires.Count | Should -Be 10

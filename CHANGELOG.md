@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.1.0 (2026-09-24)
+
+- **Fixed:** testing it a few times in a row switched it off until the next sign-in. The safety breaker counted every lock; now it only counts *bounces*, a key that comes back by itself within 10 seconds of a lock (a faulty key or port). People take longer than that.
+- **Changed:** the breaker pauses for 15 minutes (`CooldownMinutes`) instead of until the next sign-in, and resumes by itself.
+- **New:** Windows notifications when it first arms after sign-in, when it pauses and when it resumes (`ShowNotifications`).
+- **Changed:** arms after 3 seconds instead of 5.
+- **Fixed:** installing an update stopped nothing, so the old version kept running until sign-out. `Install.ps1` now stops the running monitor first.
+- **New:** `tools/Diagnose.ps1` writes a one-click report to the Desktop.
+
 ## 1.0.0 (2026-09-24)
 
 First release of 🪟 + Leave.

@@ -6,9 +6,12 @@
   "DebounceMilliseconds": 750,
   "PollSeconds": 5,
   "LockIfMissingAtStart": false,
-  "ArmDelaySeconds": 5,
-  "MaxFiresPerWindow": 3,
+  "ArmDelaySeconds": 3,
+  "BounceSeconds": 10,
+  "MaxBouncesPerWindow": 3,
   "FlapWindowMinutes": 10,
+  "CooldownMinutes": 15,
+  "ShowNotifications": true,
   "LogPath": "%LOCALAPPDATA%\\WinPlusLeave\\WinPlusLeave.log",
   "LogMaxKB": 1024
 }

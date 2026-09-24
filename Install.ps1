@@ -41,6 +41,11 @@ $ConfigPath = Join-Path $ConfigDir 'config.json'
 
 Write-Host "Installing WinPlusLeave to $InstallDir"
 New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
+# An upgrade must not leave the old version running until the next sign-out:
+# the new copy would see the old one's mutex and quietly step aside.
+Get-CimInstance -ClassName Win32_Process -Filter "Name = 'powershell.exe'" |
+    Where-Object { $_.CommandLine -like '*\WinPlusLeave.ps1*' } |
+    ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 Copy-Item -Path (Join-Path $PSScriptRoot 'src\*') -Destination $InstallDir -Recurse -Force
 # Enroll and Uninstall travel along, so they are on the machine later without
 # the download (a one-line install leaves no folder behind to run them from).

@@ -30,9 +30,12 @@ function Get-WplDefaultConfig {
         DebounceMilliseconds = 750
         PollSeconds          = 5
         LockIfMissingAtStart = $false
-        ArmDelaySeconds      = 5
-        MaxFiresPerWindow    = 3
+        ArmDelaySeconds      = 3
+        BounceSeconds        = 10
+        MaxBouncesPerWindow  = 3
         FlapWindowMinutes    = 10
+        CooldownMinutes      = 15
+        ShowNotifications    = $true
         LogPath              = '%LOCALAPPDATA%\WinPlusLeave\WinPlusLeave.log'
         LogMaxKB             = 1024
     }
@@ -83,8 +86,11 @@ function Get-WplConfig {
     $config.PollSeconds = [int][math]::Max(1, [int]$config.PollSeconds)
     $config.LogMaxKB = [int][math]::Max(64, [int]$config.LogMaxKB)
     $config.ArmDelaySeconds = [int][math]::Max(0, [int]$config.ArmDelaySeconds)
-    $config.MaxFiresPerWindow = [int][math]::Max(0, [int]$config.MaxFiresPerWindow)
+    $config.BounceSeconds = [int][math]::Max(1, [int]$config.BounceSeconds)
+    $config.MaxBouncesPerWindow = [int][math]::Max(0, [int]$config.MaxBouncesPerWindow)
     $config.FlapWindowMinutes = [int][math]::Max(1, [int]$config.FlapWindowMinutes)
+    $config.CooldownMinutes = [int][math]::Max(1, [int]$config.CooldownMinutes)
+    $config.ShowNotifications = [bool]$config.ShowNotifications
     $config.LogPath = [Environment]::ExpandEnvironmentVariables([string]$config.LogPath)
     $config
 }
@@ -197,7 +203,7 @@ function New-WplTickState {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
     [CmdletBinding()]
     param()
-    [pscustomobject]@{ State = 'Disarmed'; PresentSince = $null; Fires = @() }
+    [pscustomobject]@{ State = 'Disarmed'; PresentSince = $null; LastFire = $null; Bounces = @(); SuspendedUntil = $null }
 }
 
 function Invoke-WplTick {
@@ -209,15 +215,18 @@ function Invoke-WplTick {
 
         Disarmed + present for ArmDelaySeconds -> Armed
         Armed    + absent                      -> Disarmed, fire once
-        MaxFiresPerWindow fires in the window   -> Suspended until next logon
+        MaxBouncesPerWindow bounces             -> Suspended for CooldownMinutes
 
         The rules that keep a bad day from turning into a lock loop:
         - Firing disarms. Unlocking without the key (it is at home, it broke)
           leaves the switch disarmed; only a key that is back in re-arms it.
         - A key has to be present without a break for ArmDelaySeconds before it
           arms, so a broken key that blinks in and out never arms at all.
-        - If it still fires MaxFiresPerWindow times within FlapWindowMinutes, the
-          key is treated as faulty and the switch stands down for the session.
+        - A BOUNCE is a key that comes back by itself within BounceSeconds of a
+          lock. A person pulls the key and plugs it back in after unlocking, well
+          after that; a faulty key or a flaky port comes back on its own in a
+          second or two. Only bounces count towards a pause, so testing it ten
+          times in a row never switches it off. The pause ends by itself.
     #>
     [CmdletBinding()]
     param(
@@ -226,27 +235,40 @@ function Invoke-WplTick {
         [Parameter(Mandatory)] [bool] $Present,
         [Parameter(Mandatory)] $Config
     )
+    $wasPresent = [bool]$Tick.PresentSince
     $since = $Tick.PresentSince
     if ($Present) { if (-not $since) { $since = $Now } } else { $since = $null }
     $windowStart = $Now.AddMinutes(-[double]$Config.FlapWindowMinutes)
-    $fires = @($Tick.Fires | Where-Object { $_ -gt $windowStart })
-    $out = [pscustomobject]@{ State = $Tick.State; PresentSince = $since; Fires = $fires; Fire = $false; Event = '' }
+    $bounces = @($Tick.Bounces | Where-Object { $_ -gt $windowStart })
+    $out = [pscustomobject]@{
+        State = $Tick.State; PresentSince = $since; LastFire = $Tick.LastFire
+        Bounces = $bounces; SuspendedUntil = $Tick.SuspendedUntil; Fire = $false; Event = ''
+    }
+
+    # A key that reappears right after a lock, before anyone could have unlocked
+    # and plugged it back in, came back on its own.
+    if ($Present -and -not $wasPresent -and $Tick.LastFire -and ($Now - $Tick.LastFire).TotalSeconds -le $Config.BounceSeconds) {
+        $out.Bounces = @($bounces) + $Now
+    }
 
     switch ($Tick.State) {
-        'Suspended' { }
+        'Suspended' {
+            if ($Tick.SuspendedUntil -and $Now -ge $Tick.SuspendedUntil) {
+                $out.State = 'Disarmed'; $out.SuspendedUntil = $null; $out.Bounces = @(); $out.Event = 'resumed'
+            }
+        }
         'Disarmed' {
-            if ($Present -and ($Now - $since).TotalSeconds -ge $Config.ArmDelaySeconds) {
+            if ($Config.MaxBouncesPerWindow -gt 0 -and $out.Bounces.Count -ge $Config.MaxBouncesPerWindow) {
+                $out.State = 'Suspended'; $out.SuspendedUntil = $Now.AddMinutes($Config.CooldownMinutes); $out.Event = 'suspended'
+            }
+            elseif ($Present -and ($Now - $since).TotalSeconds -ge $Config.ArmDelaySeconds) {
                 $out.State = 'Armed'; $out.Event = 'armed'
             }
         }
         'Armed' {
             if (-not $Present) {
-                $out.Fire = $true
-                $out.Fires = @($fires) + $Now
+                $out.Fire = $true; $out.LastFire = $Now
                 $out.State = 'Disarmed'; $out.Event = 'fired'
-                if ($Config.MaxFiresPerWindow -gt 0 -and $out.Fires.Count -ge $Config.MaxFiresPerWindow) {
-                    $out.State = 'Suspended'; $out.Event = 'suspended'
-                }
             }
         }
     }
@@ -330,6 +352,34 @@ public static extern bool LockWorkStation();
     }
 }
 
+function Show-WplNotification {
+    <#
+        .SYNOPSIS
+        A Windows toast, so the switch never changes state behind your back.
+        Uses the WinRT types that Windows PowerShell 5.1 can load; anywhere else
+        it quietly does nothing. A notification that fails must never stop the
+        switch itself.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string] $Title,
+        [Parameter(Mandatory)] [string] $Text
+    )
+    try {
+        $null = [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime]
+        $null = [Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime]
+        $xml = New-Object Windows.Data.Xml.Dom.XmlDocument
+        $xml.LoadXml(("<toast><visual><binding template='ToastGeneric'><text>{0}</text><text>{1}</text></binding></visual></toast>" -f
+            [Security.SecurityElement]::Escape($Title), [Security.SecurityElement]::Escape($Text)))
+        # Windows PowerShell's own app id: it is registered on every Windows box.
+        $appId = '{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\WindowsPowerShell\v1.0\powershell.exe'
+        [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($appId).Show([Windows.UI.Notifications.ToastNotification]::new($xml))
+    }
+    catch {
+        Write-Verbose "notification failed: $($_.Exception.Message)"
+    }
+}
+
 function Start-WplMonitor {
     <#
         .SYNOPSIS
@@ -351,6 +401,7 @@ function Start-WplMonitor {
     }
 
     $tick = New-WplTickState
+    $toldArmed = $false
     $first = & $check
     if ($first.Present) {
         & $log ("started, trusted device present, arming in {0}s: {1}" -f $Config.ArmDelaySeconds, (($first.Devices | ForEach-Object { $_.Name }) -join ', '))
@@ -370,10 +421,23 @@ function Start-WplMonitor {
         while ($true) {
             $step = Invoke-WplTick -Tick $tick -Now (Get-Date) -Present $now.Present -Config $Config
             switch ($step.Event) {
-                'armed' { & $log ("armed on: " + (($now.Devices | ForEach-Object { $_.Name }) -join ', ')) }
+                'armed' {
+                    & $log ("armed on: " + (($now.Devices | ForEach-Object { $_.Name }) -join ', '))
+                    if ($Config.ShowNotifications -and -not $toldArmed) {
+                        Show-WplNotification -Title 'Win+Leave is watching your key' -Text 'Pull it out and walk away: your PC locks behind you.'
+                        $toldArmed = $true
+                    }
+                }
                 'fired' { & $log "trusted device removed: $($Config.Action)" }
                 'suspended' {
-                    & $log ("trusted device removed: {0}. That is {1} times in {2} minutes, so the key looks faulty: standing down until the next logon." -f $Config.Action, $step.Fires.Count, $Config.FlapWindowMinutes)
+                    & $log ("the key came back by itself {0} times within {1} seconds of a lock, it looks faulty: pausing for {2} minutes" -f $step.Bounces.Count, $Config.BounceSeconds, $Config.CooldownMinutes)
+                    if ($Config.ShowNotifications) {
+                        Show-WplNotification -Title 'Win+Leave paused' -Text ("Your key keeps disconnecting by itself. Locking is paused for {0} minutes. Try another USB port or key." -f $Config.CooldownMinutes)
+                    }
+                }
+                'resumed' {
+                    & $log 'pause over: watching again'
+                    if ($Config.ShowNotifications) { Show-WplNotification -Title 'Win+Leave is back' -Text 'Plug your key in and it arms again.' }
                 }
             }
             if ($step.Fire) {
@@ -410,5 +474,5 @@ function Start-WplMonitor {
 #endregion
 
 Export-ModuleMember -Function Get-WplDefaultConfig, Get-WplConfig, ConvertFrom-WplInstanceId, Test-WplDeviceMatch,
-    Find-WplTrustedDevice, New-WplRuleFromInstanceId, New-WplTickState, Invoke-WplTick, Write-WplLog, Get-WplPresentUsbDevice,
+    Find-WplTrustedDevice, New-WplRuleFromInstanceId, New-WplTickState, Invoke-WplTick, Write-WplLog, Show-WplNotification, Get-WplPresentUsbDevice,
     Invoke-WplAction, Start-WplMonitor
