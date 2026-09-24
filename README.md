@@ -21,6 +21,26 @@ The café, the train, the client's meeting room, the kitchen table at home: the 
 
 Rolled out through Intune to every user, it becomes a house rule instead of a hope: the same behaviour on every laptop, for every user, with nothing to install or configure per person.
 
+## Install on your own PC: one line ⚡
+
+Open **PowerShell** (no need to run it as administrator) and paste:
+
+```powershell
+irm https://raw.githubusercontent.com/vdBurgIT/win-plus-leave/main/get.ps1 | iex
+```
+
+It downloads the latest release from GitHub, asks once for administrator rights (the usual Windows prompt), installs Win+Leave for every user on the PC and starts it right away. Any YubiKey works out of the box. Plug it in, wait five seconds, pull it out: locked. 🔒
+
+Changed your mind?
+
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/vdBurgIT/win-plus-leave/main/get.ps1))) -Uninstall
+```
+
+> Piping a script from the internet into PowerShell deserves a second look, whoever wrote it. [Read `get.ps1`](get.ps1) first: it's short, and it only downloads this repo's release and runs `Install.ps1` from it.
+
+Managing a fleet? Skip this and use [Intune](#roll-it-out-to-everyone-with-intune-win32-app-%EF%B8%8F) further down.
+
 ## Wear it: the badge-lanyard trick 🪪
 
 Hang the key on the **same lanyard as your building badge**. You never leave without the badge (you need it to get back in), so the key always leaves with you.

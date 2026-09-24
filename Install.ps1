@@ -42,6 +42,9 @@ $ConfigPath = Join-Path $ConfigDir 'config.json'
 Write-Host "Installing WinPlusLeave to $InstallDir"
 New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
 Copy-Item -Path (Join-Path $PSScriptRoot 'src\*') -Destination $InstallDir -Recurse -Force
+# Enroll and Uninstall travel along, so they are on the machine later without
+# the download (a one-line install leaves no folder behind to run them from).
+Copy-Item -Path (Join-Path $PSScriptRoot 'Enroll.ps1'), (Join-Path $PSScriptRoot 'Uninstall.ps1') -Destination $InstallDir -Force
 
 # Config: keep an existing one (re-install and upgrade must not forget enrolled keys).
 New-Item -ItemType Directory -Path $ConfigDir -Force | Out-Null
