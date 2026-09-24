@@ -1,3 +1,5 @@
 *.intunewin
 *.log
 out/
+diag/*
+!diag/.gitkeep
