@@ -1,0 +1,11 @@
+{
+  "Devices": [
+    { "Name": "Any YubiKey", "VendorId": "1050", "ProductId": "*", "Serial": "*" }
+  ],
+  "Action": "Lock",
+  "DebounceMilliseconds": 750,
+  "PollSeconds": 5,
+  "LockIfMissingAtStart": false,
+  "LogPath": "%LOCALAPPDATA%\\UsbDeadman\\UsbDeadman.log",
+  "LogMaxKB": 1024
+}
