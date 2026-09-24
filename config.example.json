@@ -9,6 +9,6 @@
   "ArmDelaySeconds": 5,
   "MaxFiresPerWindow": 3,
   "FlapWindowMinutes": 10,
-  "LogPath": "%LOCALAPPDATA%\\UsbDeadman\\UsbDeadman.log",
+  "LogPath": "%LOCALAPPDATA%\\WinPlusLeave\\WinPlusLeave.log",
   "LogMaxKB": 1024
 }

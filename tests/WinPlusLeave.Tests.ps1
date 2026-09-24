@@ -3,52 +3,52 @@
 # tested here without Windows and without pulling a key out of a laptop.
 
 BeforeAll {
-    Import-Module (Join-Path $PSScriptRoot '..\src\UsbDeadman\UsbDeadman.psm1') -Force
+    Import-Module (Join-Path $PSScriptRoot '..\src\WinPlusLeave\WinPlusLeave.psm1') -Force
 }
 
-Describe 'ConvertFrom-UdInstanceId' {
+Describe 'ConvertFrom-WplInstanceId' {
     It 'reads vendor, product and a serial' {
-        $id = ConvertFrom-UdInstanceId -InstanceId 'USB\VID_1050&PID_0407\0012345678'
+        $id = ConvertFrom-WplInstanceId -InstanceId 'USB\VID_1050&PID_0407\0012345678'
         $id.VendorId | Should -Be '1050'
         $id.ProductId | Should -Be '0407'
         $id.Last | Should -Be '0012345678'
         $id.HasSerial | Should -BeTrue
     }
     It 'recognises a port location as no serial' {
-        (ConvertFrom-UdInstanceId -InstanceId 'USB\VID_1050&PID_0407\5&2A1B3C4D&0&2').HasSerial | Should -BeFalse
+        (ConvertFrom-WplInstanceId -InstanceId 'USB\VID_1050&PID_0407\5&2A1B3C4D&0&2').HasSerial | Should -BeFalse
     }
     It 'upper-cases hex ids' {
-        (ConvertFrom-UdInstanceId -InstanceId 'USB\VID_abcd&PID_ef01\X1').VendorId | Should -Be 'ABCD'
+        (ConvertFrom-WplInstanceId -InstanceId 'USB\VID_abcd&PID_ef01\X1').VendorId | Should -Be 'ABCD'
     }
     It 'ignores interfaces and non-USB devices' {
-        ConvertFrom-UdInstanceId -InstanceId 'USB\VID_1050&PID_0407&MI_00\6&1&0&0000' | Should -BeNullOrEmpty
-        ConvertFrom-UdInstanceId -InstanceId 'HID\VID_1050&PID_0407&MI_00\7&1&0&0000' | Should -BeNullOrEmpty
-        ConvertFrom-UdInstanceId -InstanceId '' | Should -BeNullOrEmpty
+        ConvertFrom-WplInstanceId -InstanceId 'USB\VID_1050&PID_0407&MI_00\6&1&0&0000' | Should -BeNullOrEmpty
+        ConvertFrom-WplInstanceId -InstanceId 'HID\VID_1050&PID_0407&MI_00\7&1&0&0000' | Should -BeNullOrEmpty
+        ConvertFrom-WplInstanceId -InstanceId '' | Should -BeNullOrEmpty
     }
 }
 
-Describe 'Test-UdDeviceMatch' {
+Describe 'Test-WplDeviceMatch' {
     It 'matches any YubiKey with the default rule' {
         $rule = [pscustomobject]@{ VendorId = '1050'; ProductId = '*'; Serial = '*' }
-        Test-UdDeviceMatch -InstanceId 'USB\VID_1050&PID_0407\5&1&0&2' -Rule $rule | Should -BeTrue
-        Test-UdDeviceMatch -InstanceId 'USB\VID_1050&PID_0406\0099' -Rule $rule | Should -BeTrue
+        Test-WplDeviceMatch -InstanceId 'USB\VID_1050&PID_0407\5&1&0&2' -Rule $rule | Should -BeTrue
+        Test-WplDeviceMatch -InstanceId 'USB\VID_1050&PID_0406\0099' -Rule $rule | Should -BeTrue
     }
     It 'does not match another vendor' {
         $rule = [pscustomobject]@{ VendorId = '1050'; ProductId = '*'; Serial = '*' }
-        Test-UdDeviceMatch -InstanceId 'USB\VID_0781&PID_5581\4C530001' -Rule $rule | Should -BeFalse
+        Test-WplDeviceMatch -InstanceId 'USB\VID_0781&PID_5581\4C530001' -Rule $rule | Should -BeFalse
     }
     It 'pins a serial, case-insensitively' {
         $rule = [pscustomobject]@{ VendorId = '0781'; ProductId = '5581'; Serial = '4c530001' }
-        Test-UdDeviceMatch -InstanceId 'USB\VID_0781&PID_5581\4C530001' -Rule $rule | Should -BeTrue
-        Test-UdDeviceMatch -InstanceId 'USB\VID_0781&PID_5581\4C530002' -Rule $rule | Should -BeFalse
+        Test-WplDeviceMatch -InstanceId 'USB\VID_0781&PID_5581\4C530001' -Rule $rule | Should -BeTrue
+        Test-WplDeviceMatch -InstanceId 'USB\VID_0781&PID_5581\4C530002' -Rule $rule | Should -BeFalse
     }
     It 'never matches a pinned serial against a port location' {
         $rule = [pscustomobject]@{ VendorId = '1050'; ProductId = '0407'; Serial = '5*' }
-        Test-UdDeviceMatch -InstanceId 'USB\VID_1050&PID_0407\5&2A1B&0&2' -Rule $rule | Should -BeFalse
+        Test-WplDeviceMatch -InstanceId 'USB\VID_1050&PID_0407\5&2A1B&0&2' -Rule $rule | Should -BeFalse
     }
 }
 
-Describe 'Find-UdTrustedDevice' {
+Describe 'Find-WplTrustedDevice' {
     It 'returns only the trusted devices, once each' {
         $devices = @(
             [pscustomobject]@{ InstanceId = 'USB\VID_1050&PID_0407\5&1&0&2'; Name = 'YubiKey' },
@@ -58,43 +58,43 @@ Describe 'Find-UdTrustedDevice' {
             [pscustomobject]@{ VendorId = '1050'; ProductId = '*'; Serial = '*' },
             [pscustomobject]@{ VendorId = '1050'; ProductId = '0407'; Serial = '*' }
         )
-        $found = @(Find-UdTrustedDevice -Devices $devices -Rules $rules)
+        $found = @(Find-WplTrustedDevice -Devices $devices -Rules $rules)
         $found.Count | Should -Be 1
         $found[0].Name | Should -Be 'YubiKey'
     }
     It 'returns nothing when nothing is plugged in' {
-        @(Find-UdTrustedDevice -Devices @() -Rules @([pscustomobject]@{ VendorId = '1050'; ProductId = '*'; Serial = '*' })).Count | Should -Be 0
+        @(Find-WplTrustedDevice -Devices @() -Rules @([pscustomobject]@{ VendorId = '1050'; ProductId = '*'; Serial = '*' })).Count | Should -Be 0
     }
 }
 
-Describe 'New-UdRuleFromInstanceId' {
+Describe 'New-WplRuleFromInstanceId' {
     It 'keeps the serial when there is one' {
-        $r = New-UdRuleFromInstanceId -InstanceId 'USB\VID_0781&PID_5581\4C530001' -Name 'Stick'
+        $r = New-WplRuleFromInstanceId -InstanceId 'USB\VID_0781&PID_5581\4C530001' -Name 'Stick'
         $r.Serial | Should -Be '4C530001'
         $r.Name | Should -Be 'Stick'
     }
     It 'falls back to the model when Windows only knows the port' {
-        $r = New-UdRuleFromInstanceId -InstanceId 'USB\VID_1050&PID_0407\5&2A1B&0&2'
+        $r = New-WplRuleFromInstanceId -InstanceId 'USB\VID_1050&PID_0407\5&2A1B&0&2'
         $r.Serial | Should -Be '*'
         $r.Name | Should -Be 'USB 1050:0407'
     }
     It 'refuses something that is not a USB device' {
-        { New-UdRuleFromInstanceId -InstanceId 'HID\VID_1050' } | Should -Throw
+        { New-WplRuleFromInstanceId -InstanceId 'HID\VID_1050' } | Should -Throw
     }
 }
 
-Describe 'Invoke-UdTick (the deadman switch)' {
+Describe 'Invoke-WplTick (the deadman switch)' {
     BeforeAll {
         $cfg = [pscustomobject]@{ ArmDelaySeconds = 5; MaxFiresPerWindow = 3; FlapWindowMinutes = 10 }
         # Plays a timeline of (clock time, key present?) through the switch and
         # returns what happened. Times are on one arbitrary day.
         function Invoke-Timeline {
             param([object[]] $Timeline, $Config = $cfg)
-            $tick = New-UdTickState
+            $tick = New-WplTickState
             $fires = @()
             foreach ($t in $Timeline) {
                 $now = [datetime]::ParseExact("2026-09-24 $($t[0])", 'yyyy-MM-dd HH:mm:ss', $null)
-                $tick = Invoke-UdTick -Tick $tick -Now $now -Present ([bool]$t[1]) -Config $Config
+                $tick = Invoke-WplTick -Tick $tick -Now $now -Present ([bool]$t[1]) -Config $Config
                 if ($tick.Fire) { $fires += $t[0] }
             }
             [pscustomobject]@{ Fires = $fires; State = $tick.State }
@@ -102,7 +102,7 @@ Describe 'Invoke-UdTick (the deadman switch)' {
     }
 
     It 'starts disarmed and remembers nothing from earlier logons' {
-        (New-UdTickState).State | Should -Be 'Disarmed'
+        (New-WplTickState).State | Should -Be 'Disarmed'
     }
 
     It 'the bad day: key in, walk away (lock), back with a broken key, unlock: no second lock' {
@@ -132,12 +132,12 @@ Describe 'Invoke-UdTick (the deadman switch)' {
     }
 
     It 'arms only after the key has been in for the full delay' {
-        $tick = New-UdTickState
+        $tick = New-WplTickState
         $t0 = Get-Date '2026-09-24 09:00:00'
-        (Invoke-UdTick -Tick $tick -Now $t0 -Present $true -Config $cfg).State | Should -Be 'Disarmed'
-        $tick = Invoke-UdTick -Tick $tick -Now $t0 -Present $true -Config $cfg
-        (Invoke-UdTick -Tick $tick -Now $t0.AddSeconds(4) -Present $true -Config $cfg).State | Should -Be 'Disarmed'
-        (Invoke-UdTick -Tick $tick -Now $t0.AddSeconds(5) -Present $true -Config $cfg).State | Should -Be 'Armed'
+        (Invoke-WplTick -Tick $tick -Now $t0 -Present $true -Config $cfg).State | Should -Be 'Disarmed'
+        $tick = Invoke-WplTick -Tick $tick -Now $t0 -Present $true -Config $cfg
+        (Invoke-WplTick -Tick $tick -Now $t0.AddSeconds(4) -Present $true -Config $cfg).State | Should -Be 'Disarmed'
+        (Invoke-WplTick -Tick $tick -Now $t0.AddSeconds(5) -Present $true -Config $cfg).State | Should -Be 'Armed'
     }
 
     It 're-arms when a working key comes back, and locks again when it leaves' {
@@ -182,48 +182,48 @@ Describe 'Invoke-UdTick (the deadman switch)' {
     }
 }
 
-Describe 'Get-UdConfig' {
+Describe 'Get-WplConfig' {
     BeforeEach { $tmp = Join-Path ([IO.Path]::GetTempPath()) ("ud-" + [guid]::NewGuid() + '.json') }
     AfterEach { Remove-Item -LiteralPath $tmp -ErrorAction SilentlyContinue }
 
     It 'uses the defaults without a file' {
-        $c = Get-UdConfig -Path $tmp
+        $c = Get-WplConfig -Path $tmp
         $c.Action | Should -Be 'Lock'
         $c.Devices[0].VendorId | Should -Be '1050'
     }
     It 'reads the shipped example config' {
-        $c = Get-UdConfig -Path (Join-Path $PSScriptRoot '..\config.example.json')
+        $c = Get-WplConfig -Path (Join-Path $PSScriptRoot '..\config.example.json')
         $c.Action | Should -Be 'Lock'
         $c.PollSeconds | Should -Be 5
     }
     It 'fills missing fields in a rule with wildcards' {
         '{"Devices":[{"VendorId":"0781"}]}' | Set-Content -LiteralPath $tmp
-        $c = Get-UdConfig -Path $tmp
+        $c = Get-WplConfig -Path $tmp
         $c.Devices[0].ProductId | Should -Be '*'
         $c.Devices[0].Serial | Should -Be '*'
         $c.Devices[0].Name | Should -Not -BeNullOrEmpty
     }
     It 'refuses an unknown action instead of silently doing nothing' {
         '{"Action":"SelfDestruct"}' | Set-Content -LiteralPath $tmp
-        { Get-UdConfig -Path $tmp } | Should -Throw '*Invalid Action*'
+        { Get-WplConfig -Path $tmp } | Should -Throw '*Invalid Action*'
     }
     It 'refuses an empty device list' {
         '{"Devices":[]}' | Set-Content -LiteralPath $tmp
-        { Get-UdConfig -Path $tmp } | Should -Throw '*No devices configured*'
+        { Get-WplConfig -Path $tmp } | Should -Throw '*No devices configured*'
     }
     It 'clamps silly numbers' {
         '{"PollSeconds":0,"DebounceMilliseconds":-5}' | Set-Content -LiteralPath $tmp
-        $c = Get-UdConfig -Path $tmp
+        $c = Get-WplConfig -Path $tmp
         $c.PollSeconds | Should -Be 1
         $c.DebounceMilliseconds | Should -Be 0
     }
 }
 
-Describe 'Invoke-UdAction' {
+Describe 'Invoke-WplAction' {
     It 'does nothing under -WhatIf' {
-        { Invoke-UdAction -Action Lock -WhatIf } | Should -Not -Throw
+        { Invoke-WplAction -Action Lock -WhatIf } | Should -Not -Throw
     }
     It 'only accepts known actions' {
-        { Invoke-UdAction -Action Format -WhatIf } | Should -Throw
+        { Invoke-WplAction -Action Format -WhatIf } | Should -Throw
     }
 }

@@ -1,6 +1,6 @@
 #Requires -Version 5.1
 <#
-    UsbDeadman: lock the workstation the moment your key walks away.
+    WinPlusLeave: lock the workstation the moment your key walks away.
 
     The module is split in two on purpose. The top half is pure logic (config,
     device matching, the arm/fire state machine) and runs anywhere, so it can be
@@ -15,7 +15,7 @@ $script:YubicoVendorId = '1050'
 
 #region Config ------------------------------------------------------------------
 
-function Get-UdDefaultConfig {
+function Get-WplDefaultConfig {
     <#
         .SYNOPSIS
         The configuration used when a setting is missing from config.json.
@@ -33,12 +33,12 @@ function Get-UdDefaultConfig {
         ArmDelaySeconds      = 5
         MaxFiresPerWindow    = 3
         FlapWindowMinutes    = 10
-        LogPath              = '%LOCALAPPDATA%\UsbDeadman\UsbDeadman.log'
+        LogPath              = '%LOCALAPPDATA%\WinPlusLeave\WinPlusLeave.log'
         LogMaxKB             = 1024
     }
 }
 
-function Get-UdConfig {
+function Get-WplConfig {
     <#
         .SYNOPSIS
         Reads config.json and fills anything missing from the defaults.
@@ -50,7 +50,7 @@ function Get-UdConfig {
     param(
         [string] $Path
     )
-    $config = Get-UdDefaultConfig
+    $config = Get-WplDefaultConfig
     if ($Path -and (Test-Path -LiteralPath $Path)) {
         $raw = Get-Content -LiteralPath $Path -Raw -ErrorAction Stop
         $json = $raw | ConvertFrom-Json -ErrorAction Stop
@@ -93,7 +93,7 @@ function Get-UdConfig {
 
 #region Device matching ---------------------------------------------------------
 
-function ConvertFrom-UdInstanceId {
+function ConvertFrom-WplInstanceId {
     <#
         .SYNOPSIS
         Splits a USB device instance id into vendor, product and the last part.
@@ -118,7 +118,7 @@ function ConvertFrom-UdInstanceId {
     }
 }
 
-function Test-UdDeviceMatch {
+function Test-WplDeviceMatch {
     <#
         .SYNOPSIS
         Does this device instance id satisfy this rule? Wildcards (* and ?) are
@@ -131,7 +131,7 @@ function Test-UdDeviceMatch {
         [Parameter(Mandatory)] [AllowEmptyString()] [string] $InstanceId,
         [Parameter(Mandatory)] $Rule
     )
-    $id = ConvertFrom-UdInstanceId -InstanceId $InstanceId
+    $id = ConvertFrom-WplInstanceId -InstanceId $InstanceId
     if (-not $id) { return $false }
     if ($id.VendorId -notlike ([string]$Rule.VendorId)) { return $false }
     if ($id.ProductId -notlike ([string]$Rule.ProductId)) { return $false }
@@ -141,7 +141,7 @@ function Test-UdDeviceMatch {
     return ($id.Last -like $serial)
 }
 
-function Find-UdTrustedDevice {
+function Find-WplTrustedDevice {
     <#
         .SYNOPSIS
         Returns the present devices that match any configured rule.
@@ -154,7 +154,7 @@ function Find-UdTrustedDevice {
     )
     foreach ($dev in $Devices) {
         foreach ($rule in $Rules) {
-            if (Test-UdDeviceMatch -InstanceId ([string]$dev.InstanceId) -Rule $rule) {
+            if (Test-WplDeviceMatch -InstanceId ([string]$dev.InstanceId) -Rule $rule) {
                 $dev
                 break
             }
@@ -162,7 +162,7 @@ function Find-UdTrustedDevice {
     }
 }
 
-function New-UdRuleFromInstanceId {
+function New-WplRuleFromInstanceId {
     <#
         .SYNOPSIS
         Builds the tightest reliable rule for a device: vendor and product always,
@@ -175,7 +175,7 @@ function New-UdRuleFromInstanceId {
         [Parameter(Mandatory)] [string] $InstanceId,
         [string] $Name
     )
-    $id = ConvertFrom-UdInstanceId -InstanceId $InstanceId
+    $id = ConvertFrom-WplInstanceId -InstanceId $InstanceId
     if (-not $id) { throw "Not a top-level USB device: $InstanceId" }
     if (-not $Name) { $Name = "USB $($id.VendorId):$($id.ProductId)" }
     $serial = '*'
@@ -187,7 +187,7 @@ function New-UdRuleFromInstanceId {
 
 #region State machine -----------------------------------------------------------
 
-function New-UdTickState {
+function New-WplTickState {
     <#
         .SYNOPSIS
         The switch's memory for one session. It starts disarmed and holds
@@ -200,7 +200,7 @@ function New-UdTickState {
     [pscustomobject]@{ State = 'Disarmed'; PresentSince = $null; Fires = @() }
 }
 
-function Invoke-UdTick {
+function Invoke-WplTick {
     <#
         .SYNOPSIS
         One tick of the deadman switch. Pure: given what it remembers, the time
@@ -257,7 +257,7 @@ function Invoke-UdTick {
 
 #region Logging -----------------------------------------------------------------
 
-function Write-UdLog {
+function Write-WplLog {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)] [string] $Message,
@@ -283,7 +283,7 @@ function Write-UdLog {
 
 #region Windows ---------------------------------------------------------------
 
-function Get-UdPresentUsbDevice {
+function Get-WplPresentUsbDevice {
     <#
         .SYNOPSIS
         Top-level USB devices currently present, as InstanceId + Name.
@@ -298,11 +298,11 @@ function Get-UdPresentUsbDevice {
         ForEach-Object { [pscustomobject]@{ InstanceId = $_.DeviceID; Name = $_.Name } }
 }
 
-function Invoke-UdAction {
+function Invoke-WplAction {
     <#
         .SYNOPSIS
         Carries out the configured action in the current user's session.
-        Lock needs to run inside that session, which is why UsbDeadman runs as a
+        Lock needs to run inside that session, which is why WinPlusLeave runs as a
         logon task in user context and not as a SYSTEM service.
     #>
     [CmdletBinding(SupportsShouldProcess)]
@@ -312,13 +312,13 @@ function Invoke-UdAction {
     if (-not $PSCmdlet.ShouldProcess($env:COMPUTERNAME, $Action)) { return }
     switch ($Action) {
         'Lock' {
-            if (-not ('UsbDeadman.NativeMethods' -as [type])) {
-                Add-Type -Namespace UsbDeadman -Name NativeMethods -MemberDefinition @'
+            if (-not ('WinPlusLeave.NativeMethods' -as [type])) {
+                Add-Type -Namespace WinPlusLeave -Name NativeMethods -MemberDefinition @'
 [DllImport("user32.dll", SetLastError = true)]
 public static extern bool LockWorkStation();
 '@
             }
-            if (-not [UsbDeadman.NativeMethods]::LockWorkStation()) {
+            if (-not [WinPlusLeave.NativeMethods]::LockWorkStation()) {
                 # Fallback for the odd environment where the P/Invoke is blocked.
                 Start-Process -FilePath "$env:WINDIR\System32\rundll32.exe" -ArgumentList 'user32.dll,LockWorkStation' -WindowStyle Hidden
             }
@@ -330,34 +330,34 @@ public static extern bool LockWorkStation();
     }
 }
 
-function Start-UdMonitor {
+function Start-WplMonitor {
     <#
         .SYNOPSIS
         The main loop. Listens for USB arrival and removal events, re-checks the
         trusted devices on every event and on a slow poll (the safety net for a
-        missed event), and feeds each check through Invoke-UdTick.
+        missed event), and feeds each check through Invoke-WplTick.
     #>
-    # A monitor loop, not a one-off change; -WhatIf belongs on Invoke-UdAction.
+    # A monitor loop, not a one-off change; -WhatIf belongs on Invoke-WplAction.
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)] $Config
     )
-    $log = { param($m) Write-UdLog -Message $m -Path $Config.LogPath -MaxKB $Config.LogMaxKB }
-    $sourceId = 'UsbDeadman.DeviceChange'
+    $log = { param($m) Write-WplLog -Message $m -Path $Config.LogPath -MaxKB $Config.LogMaxKB }
+    $sourceId = 'WinPlusLeave.DeviceChange'
     $check = {
-        $found = @(Find-UdTrustedDevice -Devices @(Get-UdPresentUsbDevice) -Rules $Config.Devices)
+        $found = @(Find-WplTrustedDevice -Devices @(Get-WplPresentUsbDevice) -Rules $Config.Devices)
         [pscustomobject]@{ Present = ($found.Count -gt 0); Devices = $found }
     }
 
-    $tick = New-UdTickState
+    $tick = New-WplTickState
     $first = & $check
     if ($first.Present) {
         & $log ("started, trusted device present, arming in {0}s: {1}" -f $Config.ArmDelaySeconds, (($first.Devices | ForEach-Object { $_.Name }) -join ', '))
     }
     elseif ($Config.LockIfMissingAtStart) {
         & $log 'started without a trusted device and LockIfMissingAtStart is set: firing'
-        Invoke-UdAction -Action $Config.Action
+        Invoke-WplAction -Action $Config.Action
     }
     else {
         & $log 'started without a trusted device: staying disarmed until one is plugged in'
@@ -368,7 +368,7 @@ function Start-UdMonitor {
     try {
         $now = $first
         while ($true) {
-            $step = Invoke-UdTick -Tick $tick -Now (Get-Date) -Present $now.Present -Config $Config
+            $step = Invoke-WplTick -Tick $tick -Now (Get-Date) -Present $now.Present -Config $Config
             switch ($step.Event) {
                 'armed' { & $log ("armed on: " + (($now.Devices | ForEach-Object { $_.Name }) -join ', ')) }
                 'fired' { & $log "trusted device removed: $($Config.Action)" }
@@ -377,7 +377,7 @@ function Start-UdMonitor {
                 }
             }
             if ($step.Fire) {
-                try { Invoke-UdAction -Action $Config.Action }
+                try { Invoke-WplAction -Action $Config.Action }
                 catch { & $log "action failed: $($_.Exception.Message)" }
             }
             $tick = $step
@@ -409,6 +409,6 @@ function Start-UdMonitor {
 
 #endregion
 
-Export-ModuleMember -Function Get-UdDefaultConfig, Get-UdConfig, ConvertFrom-UdInstanceId, Test-UdDeviceMatch,
-    Find-UdTrustedDevice, New-UdRuleFromInstanceId, New-UdTickState, Invoke-UdTick, Write-UdLog, Get-UdPresentUsbDevice,
-    Invoke-UdAction, Start-UdMonitor
+Export-ModuleMember -Function Get-WplDefaultConfig, Get-WplConfig, ConvertFrom-WplInstanceId, Test-WplDeviceMatch,
+    Find-WplTrustedDevice, New-WplRuleFromInstanceId, New-WplTickState, Invoke-WplTick, Write-WplLog, Get-WplPresentUsbDevice,
+    Invoke-WplAction, Start-WplMonitor

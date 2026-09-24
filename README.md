@@ -1,23 +1,34 @@
-# UsbDeadman 🔌🔒
+# ⊞+Leave 🚶🔒
 
-**Pull your YubiKey, your screen locks.** A small, dependency-free deadman switch for Windows: it watches a trusted USB device (a YubiKey, a USB stick, a magnetic breakaway cable with a stick on the end) and locks the workstation the moment that device disappears.
+**The Win+L you never forget.** Pull your key, walk away, locked.
 
-Inspired by [BusKill](https://www.buskill.in/) and YubiKill, built for the way Windows fleets are actually managed: a scheduled task, a protected config, and an Intune-friendly install.
+Everybody knows <kbd>⊞ Win</kbd> + <kbd>L</kbd>. Almost nobody presses it every single time they get up for coffee. **Win+Leave** presses it for you: it watches a trusted USB key (your YubiKey, a USB stick, a magnetic breakaway cable with a stick on the end) and locks Windows the moment that key leaves the laptop. Take your key with you, and your screen is locked behind you. Every time.
+
+It is the deadman switch Windows forgot to ship. Inspired by [BusKill](https://www.buskill.in/) and YubiKill, built for the way Windows fleets are actually managed: a scheduled task, a protected config, and an Intune rollout to every user.
 
 ```
- key in  ──►  ARMED  ──(key pulled)──►  🔒 LockWorkStation  ──►  DISARMED
-   ▲                                                               │
-   └──────────────────────(key back in: re-arm)────────────────────┘
+ key in  ──►  ARMED  ──(key pulled)──►  🔒 Win+L  ──►  DISARMED
+   ▲                                                      │
+   └───────────────(key back in: re-arm)──────────────────┘
 ```
+
+## The golden rule 🥇
+
+> **Working outside the office? Your key is on your lanyard, not in the laptop.**
+> **Get up, take your key, and your workplace is locked.**
+
+The café, the train, the client's meeting room, the kitchen table at home: the moment you step away is the moment someone else can reach your keyboard. Win+Leave turns "remember to lock your screen" into something that happens because you took your key, which you were going to do anyway.
+
+Rolled out through Intune to every user, it becomes a house rule instead of a hope: the same behaviour on every laptop, for every user, with nothing to install or configure per person.
 
 ## How it works
 
-- **A logon task, not a service.** `Install.ps1` registers a scheduled task (`\UsbDeadman`) that starts at every logon, for every user, *in the user's own session*. Locking a workstation only works from inside that session, which is why this is not a SYSTEM service.
+- **A logon task, not a service.** `Install.ps1` registers a scheduled task (`\WinPlusLeave`) that starts at every logon, for every user, *in the user's own session*. Locking a workstation only works from inside that session, which is why this is not a SYSTEM service.
 - **Event-driven, with a safety net.** The monitor subscribes to `Win32_DeviceChangeEvent` (USB arrival and removal) and re-checks the trusted devices on every event, plus a slow poll every few seconds in case an event is missed.
 - **Arms itself.** It only fires when a trusted device *was* present and is now gone. Insert the key and it arms; pull it and it locks, once; insert it again and it re-arms. No key at logon means it waits quietly instead of locking you out.
 - **Debounced.** A key that re-enumerates for a moment (a touch, a flaky hub) is checked twice before anything happens.
 - **Never a lock loop.** A key must be in for `ArmDelaySeconds` without a break before it arms, and after `MaxFiresPerWindow` locks in `FlapWindowMinutes` the switch stands down until the next logon. See *A bad day* below.
-- **Protected config.** `%ProgramData%\UsbDeadman\config.json` is writable by administrators only, so a user cannot switch the deadman off by editing a text file.
+- **Protected config.** `%ProgramData%\WinPlusLeave\config.json` is writable by administrators only, so a user cannot switch the deadman off by editing a text file.
 
 ## Install
 
@@ -47,7 +58,7 @@ Uninstall:
 
 ## Configuration
 
-`%ProgramData%\UsbDeadman\config.json`
+`%ProgramData%\WinPlusLeave\config.json`
 
 | Setting | Default | What it does |
 |---|---|---|
@@ -59,7 +70,7 @@ Uninstall:
 | `ArmDelaySeconds` | `5` | How long a key must be in, without a break, before it arms. Stops a broken key that blinks in and out. |
 | `MaxFiresPerWindow` | `3` | After this many locks within `FlapWindowMinutes` the key is treated as faulty and the switch stands down until the next logon. `0` = never. |
 | `FlapWindowMinutes` | `10` | The window for the rule above. |
-| `LogPath` | `%LOCALAPPDATA%\UsbDeadman\UsbDeadman.log` | Rotates at `LogMaxKB`. |
+| `LogPath` | `%LOCALAPPDATA%\WinPlusLeave\WinPlusLeave.log` | Rotates at `LogMaxKB`. |
 
 Changes apply at the next logon, or restart the task.
 
@@ -73,11 +84,11 @@ Changes apply at the next logon, or restart the task.
 
 And the nasty version: the broken key is still in the laptop and blinks in and out. It never stays in for `ArmDelaySeconds`, so it never arms. If it does manage to arm and drop a few times, the switch stands down after three locks in ten minutes and says so in the log, instead of locking you out every time you unlock.
 
-These exact scenarios are tests in [`tests/UsbDeadman.Tests.ps1`](tests/UsbDeadman.Tests.ps1).
+These exact scenarios are tests in [`tests/WinPlusLeave.Tests.ps1`](tests/WinPlusLeave.Tests.ps1).
 
 The one setting that *would* lock a logon without a key is `LockIfMissingAtStart`. It is off by default and meant for kiosks where the key must always be in.
 
-## Deploy with Intune (Win32 app)
+## Roll it out to everyone with Intune (Win32 app) ☁️
 
 1. Package the repo folder with the [Win32 Content Prep Tool](https://github.com/microsoft/Microsoft-Win32-Content-Prep-Tool) (`Install.ps1` as setup file).
 2. **Install command:** `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Install.ps1 -NoStart`
@@ -86,13 +97,13 @@ The one setting that *would* lock a logon without a key is `LockIfMissingAtStart
 5. **Detection:** custom script, [`intune/Detect.ps1`](intune/Detect.ps1).
 6. To pin specific keys fleet-wide, ship your own `config.example.json` in the package (it is only copied when no config exists yet).
 
-With `-NoStart` the monitor starts at each user's next logon.
+With `-NoStart` the monitor starts at each user's next logon. Assign the app to **All devices** (or all users) and the golden rule applies to everyone who signs in: the task runs for every user on the device, and the default rule trusts any YubiKey, so nobody has to enroll anything.
 
 ## Do I even need this? 🤔
 
 Windows has two built-in cousins. Check them first:
 
-- **Smart card removal behaviour.** If users sign in with the YubiKey as a **PIV smart card**, the policy *Interactive logon: Smart card removal behavior = Lock Workstation* (Intune settings catalog, Local Policies Security Options) plus the *Smart Card Removal Policy* service does exactly this, natively. It does **not** fire for FIDO2/Windows Hello sign-ins or when the key is only used for MFA, which is the gap UsbDeadman fills.
+- **Smart card removal behaviour.** If users sign in with the YubiKey as a **PIV smart card**, the policy *Interactive logon: Smart card removal behavior = Lock Workstation* (Intune settings catalog, Local Policies Security Options) plus the *Smart Card Removal Policy* service does exactly this, natively. It does **not** fire for FIDO2/Windows Hello sign-ins or when the key is only used for MFA, which is the gap WinPlusLeave fills.
 - **Dynamic Lock** locks when a paired Bluetooth phone walks away. Convenient, but it waits about 30 seconds after the phone goes out of range, and phones wander.
 
 ## Limits (read this before you rely on it)
@@ -107,7 +118,7 @@ Windows has two built-in cousins. Check them first:
 ```powershell
 Invoke-Pester ./tests                                         # the decision logic, no Windows needed
 Invoke-ScriptAnalyzer -Path . -Recurse -Settings ./PSScriptAnalyzerSettings.psd1
-.\src\UsbDeadman.ps1 -ConfigPath .\config.example.json -Verbose   # foreground run on Windows
+.\src\WinPlusLeave.ps1 -ConfigPath .\config.example.json -Verbose   # foreground run on Windows
 ```
 
 Tip: set `"Action": "None"` in a test config and watch the log arm and fire without actually locking.

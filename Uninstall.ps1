@@ -2,21 +2,21 @@
 #Requires -RunAsAdministrator
 <#
     .SYNOPSIS
-    Removes UsbDeadman: stops every running monitor, unregisters the task and
+    Removes WinPlusLeave: stops every running monitor, unregisters the task and
     deletes the program folder. The config (with enrolled keys) stays unless
     -RemoveConfig is given, so a reinstall picks up where it left off.
 #>
 [CmdletBinding()]
 param(
-    [string] $InstallDir = (Join-Path $env:ProgramFiles 'UsbDeadman'),
+    [string] $InstallDir = (Join-Path $env:ProgramFiles 'WinPlusLeave'),
     [switch] $RemoveConfig
 )
 
 $ErrorActionPreference = 'Stop'
-$TaskName = 'UsbDeadman'
+$TaskName = 'WinPlusLeave'
 
 Get-CimInstance -ClassName Win32_Process -Filter "Name = 'powershell.exe'" |
-    Where-Object { $_.CommandLine -like '*\UsbDeadman.ps1*' } |
+    Where-Object { $_.CommandLine -like '*\WinPlusLeave.ps1*' } |
     ForEach-Object {
         Write-Host "Stopping monitor (PID $($_.ProcessId))"
         Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
@@ -33,7 +33,7 @@ if (Test-Path -LiteralPath $InstallDir) {
 }
 
 if ($RemoveConfig) {
-    $configDir = Join-Path $env:ProgramData 'UsbDeadman'
+    $configDir = Join-Path $env:ProgramData 'WinPlusLeave'
     if (Test-Path -LiteralPath $configDir) {
         Remove-Item -LiteralPath $configDir -Recurse -Force
         Write-Host "Removed $configDir"

@@ -2,7 +2,7 @@
 #Requires -RunAsAdministrator
 <#
     .SYNOPSIS
-    Pins UsbDeadman to a specific USB device (your YubiKey, a USB stick, a
+    Pins WinPlusLeave to a specific USB device (your YubiKey, a USB stick, a
     BusKill-style magnetic cable with a stick on the end).
 
     .DESCRIPTION
@@ -34,22 +34,22 @@ param(
     [Parameter(ParameterSetName = 'List', Mandatory)] [switch] $List,
     [string] $Name,
     [switch] $Replace,
-    [string] $ConfigPath = (Join-Path $env:ProgramData 'UsbDeadman\config.json')
+    [string] $ConfigPath = (Join-Path $env:ProgramData 'WinPlusLeave\config.json')
 )
 
 $ErrorActionPreference = 'Stop'
-$modulePath = Join-Path $PSScriptRoot 'src\UsbDeadman\UsbDeadman.psm1'
+$modulePath = Join-Path $PSScriptRoot 'src\WinPlusLeave\WinPlusLeave.psm1'
 if (-not (Test-Path -LiteralPath $modulePath)) {
-    $modulePath = Join-Path $env:ProgramFiles 'UsbDeadman\UsbDeadman\UsbDeadman.psm1'
+    $modulePath = Join-Path $env:ProgramFiles 'WinPlusLeave\WinPlusLeave\WinPlusLeave.psm1'
 }
 Import-Module $modulePath -Force
 
-$present = @(Get-UdPresentUsbDevice | Sort-Object Name)
-$config = Get-UdConfig -Path $ConfigPath
+$present = @(Get-WplPresentUsbDevice | Sort-Object Name)
+$config = Get-WplConfig -Path $ConfigPath
 
 if ($List) {
     foreach ($d in $present) {
-        $trusted = @(Find-UdTrustedDevice -Devices @($d) -Rules $config.Devices).Count -gt 0
+        $trusted = @(Find-WplTrustedDevice -Devices @($d) -Rules $config.Devices).Count -gt 0
         '{0}  {1,-45} {2}' -f ($(if ($trusted) { '[trusted]' } else { '         ' })), $d.Name, $d.InstanceId
     }
     return
@@ -57,7 +57,7 @@ if ($List) {
 
 switch ($PSCmdlet.ParameterSetName) {
     'Any' { $rule = [pscustomobject]@{ Name = 'Any YubiKey'; VendorId = '1050'; ProductId = '*'; Serial = '*' } }
-    'Id' { $rule = New-UdRuleFromInstanceId -InstanceId $InstanceId -Name $Name }
+    'Id' { $rule = New-WplRuleFromInstanceId -InstanceId $InstanceId -Name $Name }
     default {
         if ($present.Count -eq 0) { throw 'No USB devices found. Plug in the key you want to trust and run this again.' }
         Write-Host 'USB devices plugged in right now:'
@@ -69,7 +69,7 @@ switch ($PSCmdlet.ParameterSetName) {
         if (-not [int]::TryParse($pick, [ref]$n) -or $n -lt 1 -or $n -gt $present.Count) { throw "Not a number from the list: $pick" }
         $chosen = $present[$n - 1]
         if (-not $Name) { $Name = $chosen.Name }
-        $rule = New-UdRuleFromInstanceId -InstanceId $chosen.InstanceId -Name $Name
+        $rule = New-WplRuleFromInstanceId -InstanceId $chosen.InstanceId -Name $Name
     }
 }
 

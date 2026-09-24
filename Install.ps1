@@ -2,8 +2,8 @@
 #Requires -RunAsAdministrator
 <#
     .SYNOPSIS
-    Installs UsbDeadman: copies it to Program Files, writes a protected config to
-    ProgramData and registers the "UsbDeadman" logon task for every user.
+    Installs WinPlusLeave: copies it to Program Files, writes a protected config to
+    ProgramData and registers the "WinPlusLeave" logon task for every user.
 
     .DESCRIPTION
     The monitor runs as a scheduled task at logon, in the user's own session.
@@ -29,17 +29,17 @@
 #>
 [CmdletBinding()]
 param(
-    [string] $InstallDir = (Join-Path $env:ProgramFiles 'UsbDeadman'),
+    [string] $InstallDir = (Join-Path $env:ProgramFiles 'WinPlusLeave'),
     [ValidateSet('Lock', 'Logoff', 'Hibernate', 'Shutdown')] [string] $Action,
     [switch] $NoStart
 )
 
 $ErrorActionPreference = 'Stop'
-$TaskName = 'UsbDeadman'
-$ConfigDir = Join-Path $env:ProgramData 'UsbDeadman'
+$TaskName = 'WinPlusLeave'
+$ConfigDir = Join-Path $env:ProgramData 'WinPlusLeave'
 $ConfigPath = Join-Path $ConfigDir 'config.json'
 
-Write-Host "Installing UsbDeadman to $InstallDir"
+Write-Host "Installing WinPlusLeave to $InstallDir"
 New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
 Copy-Item -Path (Join-Path $PSScriptRoot 'src\*') -Destination $InstallDir -Recurse -Force
 
@@ -74,7 +74,7 @@ Set-Acl -LiteralPath $ConfigDir -AclObject $acl
 
 # The task. conhost --headless keeps the console window from flashing up at
 # every logon (Windows 10 1809 and later).
-$script = Join-Path $InstallDir 'UsbDeadman.ps1'
+$script = Join-Path $InstallDir 'WinPlusLeave.ps1'
 $taskAction = New-ScheduledTaskAction -Execute (Join-Path $env:WINDIR 'System32\conhost.exe') `
     -Argument ('--headless powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "{0}"' -f $script)
 $trigger = New-ScheduledTaskTrigger -AtLogOn
@@ -86,7 +86,7 @@ $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoi
     -MultipleInstances Parallel -StartWhenAvailable
 Register-ScheduledTask -TaskName $TaskName -TaskPath '\' -Action $taskAction -Trigger $trigger `
     -Principal $principal -Settings $settings -Force `
-    -Description 'UsbDeadman: locks the workstation when the trusted USB key (e.g. a YubiKey) is removed.' | Out-Null
+    -Description 'WinPlusLeave: locks the workstation when the trusted USB key (e.g. a YubiKey) is removed.' | Out-Null
 Write-Host "Scheduled task '$TaskName' registered (at logon, every user)."
 
 if (-not $NoStart) {
@@ -99,4 +99,4 @@ if (-not $NoStart) {
     }
 }
 
-Write-Host "Done. Log: %LOCALAPPDATA%\UsbDeadman\UsbDeadman.log"
+Write-Host "Done. Log: %LOCALAPPDATA%\WinPlusLeave\WinPlusLeave.log"
