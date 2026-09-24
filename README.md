@@ -4,7 +4,7 @@
 
 Everybody knows <kbd>⊞ Win</kbd> + <kbd>L</kbd>. Almost nobody presses it every single time they get up for coffee. **Win+Leave** presses it for you: it watches a trusted USB key (your YubiKey, a USB stick, a magnetic breakaway cable with a stick on the end) and locks Windows the moment that key leaves the laptop. Take your key with you, and your screen is locked behind you. Every time.
 
-It is the deadman switch Windows forgot to ship. Inspired by [BusKill](https://www.buskill.in/) and YubiKill, built for the way Windows fleets are actually managed: a scheduled task, a protected config, and an Intune rollout to every user.
+It is the deadman switch Windows forgot to ship. The idea comes from [BusKill](https://www.buskill.in/) (and YubiKill): a brilliant one. Win+Leave is the **MSP variant** of it: instead of one more application with its own installer and update cycle, it's a few hundred lines of PowerShell you can read, own and roll out from Intune like every other policy, working with the YubiKey your users already carry.
 
 ```
  key in  ──►  ARMED  ──(key pulled)──►  🔒 Win+L  ──►  DISARMED
