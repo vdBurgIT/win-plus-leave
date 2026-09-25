@@ -2,6 +2,10 @@
 
 **The Win+L you never forget.** Pull your key, walk away, locked.
 
+![Win+Leave in action: the key on its cord is pulled, the magnetic adapter lets go and Windows locks](docs/media/win-plus-leave.gif)
+
+*Five seconds, zero keys pressed: the magnet lets go, Windows locks. ([MP4](docs/media/win-plus-leave.mp4))*
+
 Everybody knows <kbd>🪟 Win</kbd> + <kbd>L</kbd>. Almost nobody presses it every single time they get up for coffee. **Win+Leave** presses it for you: it watches a trusted USB key (your YubiKey, a USB stick, a magnetic breakaway cable with a stick on the end) and locks Windows the moment that key leaves the laptop. Take your key with you, and your screen is locked behind you. Every time.
 
 It is the deadman switch Windows forgot to ship. The idea comes from [BusKill](https://www.buskill.in/) (and YubiKill): a brilliant one. Win+Leave is the **MSP variant** of it: instead of one more application with its own installer and update cycle, it's a few hundred lines of PowerShell you can read, own and roll out from Intune like every other policy, working with the YubiKey your users already carry.
@@ -53,7 +57,9 @@ For the full deadman effect, put the key on a **retractable badge reel** and kee
 
 **Magnetic USB-C adapter.** Leave the small half in the laptop port and put the other half on the key. A tug snaps them apart cleanly: no bent key, no worn port, and the laptop stays on the table. Lanyard + reel + magnet is the BusKill idea without a special cable. Many cheap adapters are **charge-only**: the key needs data (USB 2.0 is enough), so pick one that carries data and check that Windows sees the key through it.
 
-<!-- 📸 photo: magnetic USB-C adapter in the laptop, key on the lanyard side -->
+![A YubiKey on a cord with the magnetic USB-C adapter on the key, and next to it the small half that stays in the laptop port](docs/media/magnet-adapter.jpg)
+
+*The setup from the demo: the key on a cord with the magnet on the key, and on the right the small stub that lives in the laptop port.*
 
 ## How it works
 
