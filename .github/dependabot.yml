@@ -1,0 +1,10 @@
+# Dependency updates and security PRs. Weekly, small updates grouped into one PR.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      actions:
+        patterns: ["*"]
